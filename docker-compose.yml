@@ -1,0 +1,36 @@
+# Requirement Quality and Ambiguity Analyzer: this service and its own database.
+# Run it on its own with `docker compose up --build`, or as part of the whole
+# platform from AgilePlatform/docker-compose.yml.
+name: requirement-quality
+
+services:
+  quality-db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: quality_db
+      POSTGRES_USER: quality_user
+      POSTGRES_PASSWORD: ${QUALITY_DB_PASSWORD:-quality-local}
+    ports:
+      - "127.0.0.1:5441:5432"
+    volumes:
+      - quality-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quality_user -d quality_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  quality-api:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://quality_user:${QUALITY_DB_PASSWORD:-quality-local}@quality-db:5432/quality_db
+    ports:
+      - "127.0.0.1:8001:8001"
+    depends_on:
+      quality-db:
+        condition: service_healthy
+
+volumes:
+  # Fixed name keeps the data whether this file runs alone or from AgilePlatform/docker-compose.yml.
+  quality-db-data:
+    name: quality-db-data
