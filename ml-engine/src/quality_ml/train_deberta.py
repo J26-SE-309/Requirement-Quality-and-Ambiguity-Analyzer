@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import torch
 import pandas as pd
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 from transformers import (
@@ -127,6 +128,113 @@ def compute_metrics(eval_prediction):
     }
 
 
+class WeightedTrainer(Trainer):
+    """Trainer with inverse-frequency class-weighted cross-entropy loss."""
+
+    def __init__(self, *args, class_weights=None, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        if class_weights is None:
+            raise ValueError("class_weights must be provided.")
+
+        self.class_weights = torch.tensor(
+            class_weights,
+            dtype=torch.float32,
+        )
+
+    def compute_loss(
+        self,
+        model,
+        inputs,
+        return_outputs=False,
+        num_items_in_batch=None,
+    ):
+        labels = inputs.pop("labels")
+
+        outputs = model(**inputs)
+
+        weights = self.class_weights.to(
+            outputs.logits.device
+        )
+
+        loss_function = torch.nn.CrossEntropyLoss(
+            weight=weights
+        )
+
+        loss = loss_function(
+            outputs.logits,
+            labels,
+        )
+
+        return (
+            (loss, outputs)
+            if return_outputs
+            else loss
+        )
+
+
+
+
+def configure_trainable_layers(model, trainable_layers: str = "all"):
+    """Configure which DeBERTa encoder layers are trainable.
+
+    Options:
+        all             -> all model parameters trainable
+        last_6          -> encoder layers 6-11 + pooler + classifier
+        last_3          -> encoder layers 9-11 + pooler + classifier
+        classifier_only -> pooler + classifier only
+    """
+
+    valid_options = {
+        "all",
+        "last_6",
+        "last_3",
+        "classifier_only",
+    }
+
+    if trainable_layers not in valid_options:
+        raise ValueError(
+            f"Unknown configuration: {trainable_layers}. "
+            f"Choose from {sorted(valid_options)}."
+        )
+
+    # Start by freezing everything.
+    for parameter in model.parameters():
+        parameter.requires_grad = False
+
+    if trainable_layers == "all":
+        # EXP-05-compatible configuration:
+        # every parameter is trainable.
+        for parameter in model.parameters():
+            parameter.requires_grad = True
+
+    else:
+        encoder_layers = model.deberta.encoder.layer
+
+        if trainable_layers == "last_6":
+            start_layer = 6
+
+        elif trainable_layers == "last_3":
+            start_layer = 9
+
+        else:
+            # classifier_only
+            start_layer = len(encoder_layers)
+
+        # Unfreeze selected encoder layers.
+        for layer in encoder_layers[start_layer:]:
+            for parameter in layer.parameters():
+                parameter.requires_grad = True
+
+        # Keep task-specific components trainable.
+        for parameter in model.pooler.parameters():
+            parameter.requires_grad = True
+
+        for parameter in model.classifier.parameters():
+            parameter.requires_grad = True
+
+    return model
+
 def train(
     csv_path: Path,
     output_dir: Path,
@@ -136,8 +244,9 @@ def train(
     eval_batch_size: int = 8,
     gradient_accumulation_steps: int = 4,
     max_length: int = 128,
+    trainable_layers: str = "all",
 ):
-    """Fine-tune DeBERTa-v3-base with all model parameters trainable."""
+    """Fine-tune DeBERTa-v3-base with a configurable set of trainable layers."""
 
     train_dataset, validation_dataset, test_dataset, dataset_info = (
         prepare_dataset(csv_path)
@@ -145,6 +254,28 @@ def train(
 
     print("Dataset information:")
     print(json.dumps(dataset_info, indent=2))
+
+    # Calculate inverse-frequency class weights from the training set.
+    # Label 0 = defect, Label 1 = ok.
+    raw_train = train_dataset["labels"]
+
+    class_counts = np.bincount(
+        raw_train,
+        minlength=2,
+    )
+
+    class_weights = (
+        len(raw_train)
+        / (2.0 * class_counts)
+    )
+
+    print("Class counts:")
+    print(f"  defect (0): {class_counts[0]}")
+    print(f"  ok     (1): {class_counts[1]}")
+
+    print("Class weights:")
+    print(f"  defect (0): {class_weights[0]:.6f}")
+    print(f"  ok     (1): {class_weights[1]:.6f}")
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
@@ -173,9 +304,14 @@ def train(
         label2id=LABEL2ID,
     )
 
-    # Explicitly keep every model parameter trainable.
-    for parameter in model.parameters():
-        parameter.requires_grad = True
+    # Explicitly keep the model in FP32 for stable full-precision training.
+    model = model.float()
+
+    # Configure which DeBERTa layers are trainable.
+    model = configure_trainable_layers(
+        model,
+        trainable_layers=trainable_layers,
+    )
 
     trainable_parameters = sum(
         parameter.numel()
@@ -188,12 +324,20 @@ def train(
         for parameter in model.parameters()
     )
 
+    trainable_encoder_layers = [
+        index
+        for index, layer in enumerate(model.deberta.encoder.layer)
+        if any(parameter.requires_grad for parameter in layer.parameters())
+    ]
+
+    print(f"Trainable layer configuration: {trainable_layers}")
+    print(f"Trainable encoder layers: {trainable_encoder_layers}")
     print(f"Total parameters: {total_parameters:,}")
     print(f"Trainable parameters: {trainable_parameters:,}")
 
-    if trainable_parameters != total_parameters:
+    if trainable_layers == "all" and trainable_parameters != total_parameters:
         raise RuntimeError(
-            "Not all DeBERTa parameters are trainable."
+            "The 'all' configuration must make every DeBERTa parameter trainable."
         )
 
     data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
@@ -206,7 +350,7 @@ def train(
         gradient_accumulation_steps=gradient_accumulation_steps,
         num_train_epochs=epochs,
         weight_decay=0.01,
-        warmup_ratio=0.1,
+        warmup_steps=100,
         eval_strategy="epoch",
         save_strategy="epoch",
         load_best_model_at_end=True,
@@ -219,7 +363,7 @@ def train(
         seed=42,
     )
 
-    trainer = Trainer(
+    trainer = WeightedTrainer(
         model=model,
         args=training_args,
         train_dataset=tokenized_train,
@@ -227,6 +371,7 @@ def train(
         processing_class=tokenizer,
         data_collator=data_collator,
         compute_metrics=compute_metrics,
+        class_weights=class_weights,
     )
 
     print("\nStarting fine-tuning...")
@@ -252,7 +397,9 @@ def train(
         "model": MODEL_NAME,
         "task": "QuRE binary requirement quality classification",
         "labels": LABEL2ID,
-        "all_encoder_layers_trainable": True,
+        "trainable_layers": trainable_layers,
+        "trainable_encoder_layers": trainable_encoder_layers,
+        "all_model_parameters_trainable": trainable_parameters == total_parameters,
         "total_parameters": total_parameters,
         "trainable_parameters": trainable_parameters,
         "learning_rate": learning_rate,
@@ -333,6 +480,18 @@ def main():
         default=128,
     )
 
+    parser.add_argument(
+        "--trainable-layers",
+        choices=[
+            "all",
+            "last_6",
+            "last_3",
+            "classifier_only",
+        ],
+        default="all",
+        help="Which DeBERTa layers to fine-tune.",
+    )
+
     args = parser.parse_args()
 
     train(
@@ -344,6 +503,7 @@ def main():
         eval_batch_size=args.eval_batch_size,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         max_length=args.max_length,
+        trainable_layers=args.trainable_layers,
     )
 
 
