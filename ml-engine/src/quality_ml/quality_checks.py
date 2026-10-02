@@ -1,19 +1,39 @@
-"""spaCy-based structural completeness checks for Task 1."""
+"""spaCy-based structural and vague-term checks for Task 1."""
 
 import spacy
 
 NLP = spacy.load("en_core_web_sm")
 
+VAGUE_TERMS = {
+    "adequate",
+    "appropriate",
+    "bad",
+    "certain",
+    "close",
+    "common",
+    "comparable",
+    "detail",
+    "early",
+    "fast",
+    "few",
+    "large",
+    "long",
+    "much",
+    "near",
+    "particular",
+    "several",
+    "short",
+    "similar",
+    "small",
+    "soon",
+    "special",
+    "various",
+    "good",
+}
+
 
 def check_structural_completeness(text: str) -> dict:
-    """Check whether a requirement contains basic structural elements.
-
-    The checks are intentionally transparent and rule-based:
-    - requirement should contain a subject/actor
-    - requirement should contain a modal requirement verb
-    - requirement should contain an action verb
-    - requirement should contain an observable object/complement
-    """
+    """Check whether a requirement contains basic structural elements."""
 
     if not text or not text.strip():
         raise ValueError("Requirement text must not be empty.")
@@ -25,13 +45,7 @@ def check_structural_completeness(text: str) -> dict:
         for token in doc
     )
 
-    requirement_modals = {
-        "shall",
-        "must",
-        "should",
-        "will",
-        "required",
-    }
+    requirement_modals = {"shall", "must", "should", "will", "required"}
 
     has_requirement_modal = any(
         token.lemma_.lower() in requirement_modals
@@ -78,3 +92,18 @@ def check_structural_completeness(text: str) -> dict:
         "checks": checks,
         "missing_elements": missing_elements,
     }
+
+
+def find_vague_terms(text: str) -> list[str]:
+    """Find vague terms from the requirement text."""
+
+    if not text or not text.strip():
+        raise ValueError("Requirement text must not be empty.")
+
+    doc = NLP(text)
+
+    return [
+        token.text
+        for token in doc
+        if token.is_alpha and token.lemma_.lower() in VAGUE_TERMS
+    ]

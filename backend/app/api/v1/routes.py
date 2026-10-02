@@ -39,6 +39,7 @@ def _analyse(requirement: RequirementIn) -> RequirementAnalysis:
         QualityIssue(
             type=issue["type"],
             message=issue["message"],
+            terms=issue.get("terms", []),
         )
         for issue in task1_result["issues"]
     ]
@@ -47,21 +48,30 @@ def _analyse(requirement: RequirementIn) -> RequirementAnalysis:
         "missing_elements"
     ]
 
+    vague_terms = task1_result.get("vague_terms", [])
+
     if missing_elements:
         explanation = (
-            "Task 1 identified structural completeness issues: "
+            "The requirement needs additional information. "
+            "The following elements are missing: "
             + ", ".join(missing_elements)
             + "."
         )
+    elif vague_terms:
+        explanation = (
+            "The requirement contains potentially vague wording: "
+            + ", ".join(f'"{term}"' for term in vague_terms)
+            + ". These terms should be replaced with specific, "
+            "measurable criteria where possible."
+        )
     elif task1_result["model_label"] == "defect":
         explanation = (
-            "Task 1 identified the requirement as potentially defective "
-            "using the fine-tuned QuRE DeBERTa model."
+            "The requirement may contain quality issues. "
+            "Consider reviewing it for clearer and more measurable wording."
         )
     else:
         explanation = (
-            "Task 1 found the requirement structurally complete and "
-            "classified it as acceptable by the fine-tuned QuRE DeBERTa model."
+            "The requirement is structurally complete and was assessed as acceptable."
         )
 
     return RequirementAnalysis(

@@ -22,9 +22,12 @@ class TextSpan(BaseModel):
 
 
 class QualityIssue(BaseModel):
-    type: str = Field(description="Defect category, e.g. incomplete, inconsistent, grammar, missing_information")
+    type: str = Field(
+        description="Defect category, e.g. incomplete, inconsistent, grammar, missing_information"
+    )
     message: str
     span: TextSpan | None = None
+    terms: list[str] = []
 
 
 class QualityResult(BaseModel):
