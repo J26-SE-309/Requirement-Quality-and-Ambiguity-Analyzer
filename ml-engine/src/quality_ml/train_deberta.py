@@ -7,8 +7,9 @@ import json
 from pathlib import Path
 
 import numpy as np
-import torch
 import pandas as pd
+import torch
+from datasets import Dataset
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 from transformers import (
     AutoModelForSequenceClassification,
@@ -17,10 +18,8 @@ from transformers import (
     Trainer,
     TrainingArguments,
 )
-from datasets import Dataset
 
 from quality_ml.qure import clean_qure, split_qure
-
 
 MODEL_NAME = "microsoft/deberta-v3-base"
 

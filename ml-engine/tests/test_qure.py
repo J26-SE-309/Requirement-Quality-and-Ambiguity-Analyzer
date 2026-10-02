@@ -1,5 +1,4 @@
 import pandas as pd
-
 from quality_ml.qure import clean_qure, split_qure
 
 
