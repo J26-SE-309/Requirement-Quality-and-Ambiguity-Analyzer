@@ -3,7 +3,6 @@
 from datetime import UTC, datetime
 
 from fastapi import APIRouter
-from quality_ml.task1 import Task1QualityAnalyzer
 
 from app.schemas import (
     AmbiguityResult,
@@ -17,12 +16,24 @@ from app.schemas import (
 
 router = APIRouter(tags=["requirement quality"])
 
-_task1_analyzer = Task1QualityAnalyzer()
+_task1_analyzer = None
+
+
+def _get_task1_analyzer():
+    """Load the Task 1 analyzer only when an analysis is requested."""
+    global _task1_analyzer
+
+    if _task1_analyzer is None:
+        from quality_ml.task1 import Task1QualityAnalyzer
+
+        _task1_analyzer = Task1QualityAnalyzer()
+
+    return _task1_analyzer
 
 
 def _analyse(requirement: RequirementIn) -> RequirementAnalysis:
     """Run Task 1 quality analysis and keep Task 2/3 as placeholders."""
-    task1_result = _task1_analyzer.analyze(requirement.text)
+    task1_result = _get_task1_analyzer().analyze(requirement.text)
 
     issues = [
         QualityIssue(
