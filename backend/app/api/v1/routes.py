@@ -11,12 +11,14 @@ from app.schemas import (
     RequirementAnalysis,
     RequirementIn,
     StabilityResult,
+    TextSpan,
     VaguenessResult,
 )
 
 router = APIRouter(tags=["requirement quality"])
 
 _task1_analyzer = None
+_task2_analyzer = None
 
 
 def _get_task1_analyzer():
@@ -31,9 +33,22 @@ def _get_task1_analyzer():
     return _task1_analyzer
 
 
+def _get_task2_analyzer():
+    """Load the Task 2 analyzer only when an analysis is requested."""
+    global _task2_analyzer
+
+    if _task2_analyzer is None:
+        from quality_ml.task2 import Task2AmbiguityAnalyzer
+
+        _task2_analyzer = Task2AmbiguityAnalyzer()
+
+    return _task2_analyzer
+
+
 def _analyse(requirement: RequirementIn) -> RequirementAnalysis:
-    """Run Task 1 quality analysis and keep Task 2/3 as placeholders."""
+    """Run Task 1 and Task 2 analysis while keeping Task 3 as a placeholder."""
     task1_result = _get_task1_analyzer().analyze(requirement.text)
+    task2_result = _get_task2_analyzer().analyze(requirement.text)
 
     issues = [
         QualityIssue(
@@ -74,6 +89,16 @@ def _analyse(requirement: RequirementIn) -> RequirementAnalysis:
             "The requirement is structurally complete and was assessed as acceptable."
         )
 
+    ambiguity_spans = [
+        TextSpan(
+            start=analysis["span"]["start"],
+            end=analysis["span"]["end"],
+            text=analysis["pronoun"],
+        )
+        for analysis in task2_result["pronouns"]
+        if analysis["is_ambiguous"]
+    ]
+
     return RequirementAnalysis(
         requirement_id=requirement.requirement_id,
         quality=QualityResult(
@@ -82,9 +107,9 @@ def _analyse(requirement: RequirementIn) -> RequirementAnalysis:
             issues=issues,
         ),
         ambiguity=AmbiguityResult(
-            is_ambiguous=False,
-            score=0.0,
-            spans=[],
+            is_ambiguous=task2_result["is_ambiguous"],
+            score=task2_result["score"],
+            spans=ambiguity_spans,
         ),
         vagueness=VaguenessResult(
             count=0,
@@ -96,7 +121,7 @@ def _analyse(requirement: RequirementIn) -> RequirementAnalysis:
         ),
         confidence=task1_result["score"],
         explanation=explanation,
-        model_version="task1-exp06-deberta-spacy",
+        model_version="task1-exp06-deberta-spacy+task2-exp04-minilm",
         analysed_at=datetime.now(UTC),
     )
 

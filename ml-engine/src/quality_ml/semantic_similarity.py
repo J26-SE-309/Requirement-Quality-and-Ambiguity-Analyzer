@@ -1,11 +1,13 @@
 """SBERT-based semantic similarity utilities for ambiguity analysis."""
 
+import os
 from functools import lru_cache
 
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 
 DEFAULT_MODEL_NAME = "all-MiniLM-L6-v2"
+MODEL_PATH_ENV = "QUALITY_ML_SEMANTIC_MODEL_PATH"
 
 
 @lru_cache(maxsize=1)
@@ -14,7 +16,9 @@ def load_embedding_model(
 ) -> SentenceTransformer:
     """Load and cache the sentence-transformer model."""
 
-    return SentenceTransformer(model_name)
+    configured_path = os.environ.get(MODEL_PATH_ENV)
+    model_source = configured_path or model_name
+    return SentenceTransformer(model_source)
 
 
 def calculate_similarity(

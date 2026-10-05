@@ -15,7 +15,7 @@ def test_analyze_returns_good_for_complete_requirement(client):
     assert body["quality"]["label"] == "Good"
     assert 0 <= body["quality"]["score"] <= 1
     assert body["quality"]["issues"] == []
-    assert body["model_version"] == "task1-exp06-deberta-spacy"
+    assert body["model_version"] == "task1-exp06-deberta-spacy+task2-exp04-minilm"
 
 
 def test_analyze_returns_poor_for_defective_requirement(client):

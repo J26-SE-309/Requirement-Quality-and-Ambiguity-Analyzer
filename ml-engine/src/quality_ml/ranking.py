@@ -41,9 +41,9 @@ def calculate_combined_score(
     semantic_score: float,
     proximity_score: float,
     syntactic_score: float,
-    semantic_weight: float = 0.5,
-    proximity_weight: float = 0.3,
-    syntactic_weight: float = 0.2,
+    semantic_weight: float = 0.9,
+    proximity_weight: float = 0.1,
+    syntactic_weight: float = 0.0,
 ) -> float:
     """Combine semantic, proximity and syntactic scores."""
 

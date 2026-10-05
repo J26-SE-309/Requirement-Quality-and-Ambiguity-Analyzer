@@ -4,6 +4,7 @@ import spacy
 
 NLP = spacy.load("en_core_web_sm")
 
+# Single-word terms that may be vague in software requirements.
 VAGUE_TERMS = {
     "adequate",
     "appropriate",
@@ -12,23 +13,60 @@ VAGUE_TERMS = {
     "close",
     "common",
     "comparable",
+    "convenient",
     "detail",
     "early",
+    "easy",
+    "effective",
+    "efficient",
     "fast",
     "few",
+    "flexible",
+    "good",
     "large",
     "long",
     "much",
     "near",
+    "normal",
+    "normally",
     "particular",
+    "powerful",
+    "quick",
+    "quickly",
+    "reasonable",
+    "reliable",
+    "robust",
+    "satisfactory",
+    "secure",
     "several",
     "short",
     "similar",
+    "simple",
     "small",
     "soon",
     "special",
+    "sufficient",
     "various",
-    "good",
+    "better",
+    "best",
+    "modern",
+    "minimal",
+    "maximum",
+    "immediately",
+    "usually",
+}
+
+# Multi-word expressions that may be vague in software requirements.
+VAGUE_PHRASES = {
+    "as needed",
+    "as soon as possible",
+    "easy to use",
+    "high performance",
+    "user friendly",
+    "user-friendly",
+    "where appropriate",
+    "and so on",
+    "etc",
 }
 
 
@@ -95,15 +133,52 @@ def check_structural_completeness(text: str) -> dict:
 
 
 def find_vague_terms(text: str) -> list[str]:
-    """Find vague terms from the requirement text."""
+    """Find potentially vague words and phrases in a requirement."""
 
     if not text or not text.strip():
         raise ValueError("Requirement text must not be empty.")
 
     doc = NLP(text)
 
-    return [
-        token.text
-        for token in doc
-        if token.is_alpha and token.lemma_.lower() in VAGUE_TERMS
-    ]
+    detected_terms: list[str] = []
+
+    # Detect single-word vague terms.
+    for token in doc:
+        if token.is_alpha and token.lemma_.lower() in VAGUE_TERMS:
+            term = token.text
+
+            if term.lower() not in {
+                detected.lower() for detected in detected_terms
+            }:
+                detected_terms.append(term)
+
+    # Detect multi-word vague phrases directly from the original text.
+    # This handles hyphenated phrases such as "user-friendly".
+    normalized_text = " ".join(text.lower().split())
+
+    for phrase in sorted(VAGUE_PHRASES, key=len, reverse=True):
+        if phrase in normalized_text:
+            phrase_start = normalized_text.find(phrase)
+            phrase_end = phrase_start + len(phrase)
+
+            # Avoid matching a phrase inside a larger word.
+            before_ok = (
+                phrase_start == 0
+                or not normalized_text[phrase_start - 1].isalnum()
+            )
+            after_ok = (
+                phrase_end == len(normalized_text)
+                or not normalized_text[phrase_end].isalnum()
+            )
+
+            if before_ok and after_ok:
+                display_phrase = text[
+                    phrase_start:phrase_end
+                ]
+
+                if display_phrase.lower() not in {
+                    detected.lower() for detected in detected_terms
+                }:
+                    detected_terms.append(display_phrase)
+
+    return detected_terms

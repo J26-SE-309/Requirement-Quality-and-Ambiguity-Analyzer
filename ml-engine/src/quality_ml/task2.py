@@ -1,29 +1,24 @@
-"""Context-aware ambiguity and vagueness analysis."""
+"""Context-aware pronoun resolution using the fine-tuned SBERT model."""
 
 from quality_ml.ambiguity_checks import (
     find_pronouns,
     get_ambiguity_signals,
 )
 from quality_ml.interpretations import generate_interpretations
-from quality_ml.semantic_similarity import (
-    rank_candidates,
-    similarity_gap,
-)
-
-SEMANTIC_GAP_THRESHOLD = 0.05
+from quality_ml.ranking import calculate_combined_score, calculate_proximity_score
+from quality_ml.semantic_similarity import rank_candidates, similarity_gap
 
 
 class Task2AmbiguityAnalyzer:
-    """Combine spaCy ambiguity signals with SBERT semantic comparison."""
+    """Rank pronoun antecedents using semantic similarity and proximity."""
 
     def analyze(self, text: str) -> dict:
-        """Analyze pronoun ambiguity in a requirement."""
+        """Analyze pronoun antecedents and return ranked interpretations."""
 
         if not text or not text.strip():
             raise ValueError("Requirement text must not be empty.")
 
         pronouns = find_pronouns(text)
-
         analyses = []
 
         for pronoun in pronouns:
@@ -43,33 +38,59 @@ class Task2AmbiguityAnalyzer:
                 interpretations,
             )
 
-            gap = similarity_gap(ranked_candidates)
+            for candidate in ranked_candidates:
+                candidate_position = next(
+                    (
+                        item["root_position"]
+                        for item in signals["candidates"]
+                        if item["text"] == candidate["candidate"]
+                        and item["start"] == candidate["candidate_start"]
+                    ),
+                    pronoun["position"],
+                )
 
+                proximity_score = calculate_proximity_score(
+                    pronoun["position"],
+                    candidate_position,
+                )
+
+                candidate["proximity"] = proximity_score
+                candidate["combined_score"] = calculate_combined_score(
+                    semantic_score=candidate["similarity"],
+                    proximity_score=proximity_score,
+                    syntactic_score=0.0,
+                )
+
+            ranked_candidates.sort(
+                key=lambda candidate: candidate["combined_score"],
+                reverse=True,
+            )
+
+            for rank, candidate in enumerate(ranked_candidates, start=1):
+                candidate["rank"] = rank
+
+            gap = similarity_gap(ranked_candidates)
             candidate_count = len(ranked_candidates)
 
-            lexical_ambiguity = candidate_count >= 2
+            if ranked_candidates:
+                best_candidate = ranked_candidates[0]
+                confidence = best_candidate["combined_score"]
+            else:
+                best_candidate = None
+                confidence = 0.0
 
-            syntactic_ambiguity = signals["signals"]["syntactic"]
-
-            semantic_ambiguity = (
-                candidate_count >= 2
-                and gap < SEMANTIC_GAP_THRESHOLD
-            )
-
-            anaphoric_ambiguity = signals["signals"]["anaphoric"]
-
-            ambiguity_evidence = sum(
-                [
-                    lexical_ambiguity,
-                    syntactic_ambiguity,
-                    semantic_ambiguity,
-                    anaphoric_ambiguity,
-                ]
-            )
+            if len(ranked_candidates) >= 2:
+                second_score = ranked_candidates[1]["combined_score"]
+                competition_score = max(
+                    0.0,
+                    1.0 - (best_candidate["combined_score"] - second_score),
+                )
+            else:
+                competition_score = 0.0
 
             is_ambiguous = (
                 candidate_count >= 2
-                and ambiguity_evidence >= 2
+                and competition_score >= 0.95
             )
 
             analyses.append(
@@ -83,13 +104,20 @@ class Task2AmbiguityAnalyzer:
                     "candidate_count": candidate_count,
                     "is_ambiguous": is_ambiguous,
                     "signals": {
-                        "lexical": lexical_ambiguity,
-                        "syntactic": syntactic_ambiguity,
-                        "semantic": semantic_ambiguity,
-                        "anaphoric": anaphoric_ambiguity,
+                        "lexical": signals["signals"]["lexical"],
+                        "syntactic": signals["signals"]["syntactic"],
+                        "semantic": candidate_count >= 2,
+                        "anaphoric": signals["signals"]["anaphoric"],
                     },
                     "candidate_interpretations": ranked_candidates,
                     "similarity_gap": gap,
+                    "best_candidate": (
+                        best_candidate["candidate"]
+                        if best_candidate
+                        else None
+                    ),
+                    "confidence": confidence,
+                    "competition_score": competition_score,
                 }
             )
 
@@ -98,10 +126,11 @@ class Task2AmbiguityAnalyzer:
             for analysis in analyses
         )
 
-        if analyses:
-            ambiguity_score = ambiguous_count / len(analyses)
-        else:
-            ambiguity_score = 0.0
+        ambiguity_score = (
+            ambiguous_count / len(analyses)
+            if analyses
+            else 0.0
+        )
 
         return {
             "is_ambiguous": ambiguous_count > 0,
