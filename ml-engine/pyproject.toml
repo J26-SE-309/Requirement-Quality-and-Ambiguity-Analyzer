@@ -12,6 +12,7 @@ dependencies = [
   "pandas>=2.2",
   "scikit-learn>=1.5",
   "spacy>=3.8,<4",
+  "sentence-transformers>=3.0",
 ]
 
 [project.optional-dependencies]
