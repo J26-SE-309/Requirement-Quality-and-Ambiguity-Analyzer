@@ -6,6 +6,9 @@ from quality_ml.damir import clean_damir, load_damir, split_damir, validate_dami
 DATA_PATH = Path(r"C:\\Users\\ASUS\\Desktop\\Synapse\\Datasets\\requirement-quality\\DAMIR.xlsx")
 
 
+pytestmark = pytest.mark.skipif(not DATA_PATH.exists(), reason="DAMIR.xlsx dataset is not available")
+
+
 def test_load_damir_has_expected_structure():
     df = load_damir(DATA_PATH)
 
