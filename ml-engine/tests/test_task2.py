@@ -27,14 +27,25 @@ def test_ambiguous_pronoun_has_multiple_interpretations():
 
     assert len(pronoun["candidate_interpretations"]) >= 2
 
-    similarities = [
-        candidate["similarity"]
+    combined_scores = [
+        candidate["combined_score"]
         for candidate in pronoun["candidate_interpretations"]
     ]
 
-    assert similarities == sorted(
-        similarities,
+    assert combined_scores == sorted(
+        combined_scores,
         reverse=True,
+    )
+
+    ranks = [
+        candidate["rank"]
+        for candidate in pronoun["candidate_interpretations"]
+    ]
+
+    assert ranks == list(range(1, len(ranks) + 1))
+
+    assert pronoun["best_candidate"] == (
+        pronoun["candidate_interpretations"][0]["candidate"]
     )
 
 
