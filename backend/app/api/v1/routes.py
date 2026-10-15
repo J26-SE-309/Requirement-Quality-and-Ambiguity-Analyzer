@@ -6,9 +6,9 @@ import os
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
 from google import genai
 from google.genai import types
+from pydantic import BaseModel, Field
 
 from app.schemas import (
     AmbiguityCandidate,
