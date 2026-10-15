@@ -107,12 +107,19 @@ def rank_candidates(
 
 
 def similarity_gap(ranked_candidates: list[dict]) -> float:
-    """Return the similarity gap between the top two candidates."""
+    """Return the non-negative semantic similarity gap between the top two candidates."""
 
     if len(ranked_candidates) < 2:
         return 1.0
 
-    return (
-        ranked_candidates[0]["similarity"]
-        - ranked_candidates[1]["similarity"]
+    semantic_ranked = sorted(
+        ranked_candidates,
+        key=lambda candidate: candidate["similarity"],
+        reverse=True,
+    )
+
+    return max(
+        0.0,
+        semantic_ranked[0]["similarity"]
+        - semantic_ranked[1]["similarity"],
     )

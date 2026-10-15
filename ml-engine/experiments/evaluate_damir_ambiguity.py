@@ -74,7 +74,7 @@ def main():
             for item in result["pronouns"]
             if (
                 item["position"] == int(position)
-                and item["pronoun"].lower()
+                and item["reference"].lower()
                 == str(pronoun).lower()
             )
         ]

@@ -1,6 +1,7 @@
 import pytest
 from quality_ml.ranking import (
     calculate_combined_score,
+    calculate_linguistic_adjustment,
     calculate_proximity_score,
     calculate_syntactic_score,
 )
@@ -35,6 +36,7 @@ def test_proximity_score_is_high_for_adjacent_candidate():
 
     assert score > farther
     assert score > 0.5
+
 
 def test_syntactic_score_prefers_subject():
     subject = calculate_syntactic_score("nsubj")
@@ -81,3 +83,27 @@ def test_combined_score_rejects_zero_total_weight():
             proximity_weight=0.0,
             syntactic_weight=0.0,
         )
+
+
+def test_linguistic_adjustment_is_neutral_at_neutral_compatibility():
+    score = calculate_linguistic_adjustment(
+        base_score=0.8,
+        compatibility_score=0.5,
+    )
+
+    assert score == pytest.approx(0.8)
+
+
+def test_linguistic_adjustment_prefers_stronger_compatibility():
+    stronger = calculate_linguistic_adjustment(
+        base_score=0.8,
+        compatibility_score=1.0,
+    )
+
+    weaker = calculate_linguistic_adjustment(
+        base_score=0.8,
+        compatibility_score=0.4,
+    )
+
+    assert stronger > 0.8
+    assert weaker < 0.8

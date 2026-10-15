@@ -1,4 +1,5 @@
-"""Tune the ambiguity decision threshold using the DAMIR validation split."""
+
+"""Tune EXP-04 ambiguity thresholds using the DAMIR validation split."""
 
 from pathlib import Path
 
@@ -18,23 +19,37 @@ DATA_PATH = (
     / "DAMIR.xlsx"
 )
 
+# Candidate thresholds for EXP-04 top-two cosine similarity margin.
 GAP_THRESHOLDS = [
+    0.005,
     0.01,
+    0.015,
     0.02,
     0.03,
     0.04,
     0.05,
-    0.06,
-    0.07,
-    0.08,
+    0.075,
     0.10,
-    0.12,
     0.15,
+    0.20,
+    0.30,
+]
+
+# Candidate thresholds for normalized entropy.
+ENTROPY_THRESHOLDS = [
+    0.0,
+    0.70,
+    0.80,
+    0.85,
+    0.90,
+    0.95,
+    0.98,
+    0.99,
 ]
 
 
 def damir_to_binary_label(value: str) -> int:
-    """Convert DAMIR AckUnack to binary ambiguity labels."""
+    """Convert DAMIR AckUnack labels to binary ambiguity labels."""
 
     value = str(value).strip().lower()
 
@@ -49,14 +64,13 @@ def damir_to_binary_label(value: str) -> int:
     )
 
 
-def collect_validation_data(test_split):
-    """Run the analyzer and collect validation evidence."""
+def collect_validation_data(validation_split):
+    """Collect EXP-04 evidence for labeled validation occurrences."""
 
     analyzer = Task2AmbiguityAnalyzer()
-
     records = []
 
-    occurrence_groups = test_split.groupby(
+    occurrence_groups = validation_split.groupby(
         ["Id", "Context", "Pronoun", "Position", "AckUnack"],
         sort=False,
     )
@@ -76,7 +90,7 @@ def collect_validation_data(test_split):
             for item in result["pronouns"]
             if (
                 item["position"] == int(position)
-                and item["pronoun"].lower()
+                and item["reference"].lower()
                 == str(pronoun).lower()
             )
         ]
@@ -101,6 +115,15 @@ def collect_validation_data(test_split):
                 "anaphoric": analysis[
                     "signals"
                 ]["anaphoric"],
+                "competition_score": analysis[
+                    "competition_score"
+                ],
+                "top2_margin": analysis[
+                    "top2_margin"
+                ],
+                "normalized_entropy": analysis[
+                    "normalized_entropy"
+                ],
                 "similarity_gap": analysis[
                     "similarity_gap"
                 ],
@@ -113,32 +136,24 @@ def collect_validation_data(test_split):
 def predict_ambiguity(
     record: dict,
     gap_threshold: float,
+    entropy_threshold: float = 0.0,
 ) -> int:
-    """Apply the threshold-based ambiguity decision rule."""
+    """Predict ambiguity using EXP-04 competition evidence."""
 
-    if record["candidate_count"] < 2:
-        return 0
+    margin = record["top2_margin"]
+    entropy = record["normalized_entropy"]
 
-    semantic_ambiguity = (
-        record["similarity_gap"] < gap_threshold
+    return int(
+        record["candidate_count"] >= 2
+        and margin is not None
+        and entropy is not None
+        and margin <= gap_threshold
+        and entropy >= entropy_threshold
     )
-
-    syntactic_ambiguity = record["syntactic"]
-    anaphoric_ambiguity = record["anaphoric"]
-
-    evidence = sum(
-        [
-            semantic_ambiguity,
-            syntactic_ambiguity,
-            anaphoric_ambiguity,
-        ]
-    )
-
-    return int(evidence >= 2)
 
 
 def main():
-    """Tune ambiguity threshold on validation only."""
+    """Tune margin and entropy thresholds on DAMIR validation only."""
 
     print("Loading DAMIR...")
     df = load_damir(DATA_PATH)
@@ -153,9 +168,7 @@ def main():
 
     records = collect_validation_data(validation)
 
-    print(
-        f"Evaluated occurrences: {len(records)}"
-    )
+    print(f"Evaluated occurrences: {len(records)}")
 
     if not records:
         print("No validation occurrences could be evaluated.")
@@ -165,63 +178,67 @@ def main():
     print("Threshold evaluation")
     print("====================")
 
+    y_true = [
+        record["true_label"]
+        for record in records
+    ]
+
     results = []
 
     for threshold in GAP_THRESHOLDS:
+        for entropy_threshold in ENTROPY_THRESHOLDS:
 
-        y_true = [
-            record["true_label"]
-            for record in records
-        ]
+            y_pred = [
+                predict_ambiguity(
+                    record,
+                    threshold,
+                    entropy_threshold,
+                )
+                for record in records
+            ]
 
-        y_pred = [
-            predict_ambiguity(
-                record,
-                threshold,
+            accuracy = accuracy_score(
+                y_true,
+                y_pred,
             )
-            for record in records
-        ]
 
-        accuracy = accuracy_score(
-            y_true,
-            y_pred,
-        )
+            precision = precision_score(
+                y_true,
+                y_pred,
+                zero_division=0,
+            )
 
-        precision = precision_score(
-            y_true,
-            y_pred,
-            zero_division=0,
-        )
+            recall = recall_score(
+                y_true,
+                y_pred,
+                zero_division=0,
+            )
 
-        recall = recall_score(
-            y_true,
-            y_pred,
-            zero_division=0,
-        )
+            f1 = f1_score(
+                y_true,
+                y_pred,
+                zero_division=0,
+            )
 
-        f1 = f1_score(
-            y_true,
-            y_pred,
-            zero_division=0,
-        )
+            result = {
+                "threshold": threshold,
+                "entropy_threshold": entropy_threshold,
+                "accuracy": accuracy,
+                "precision": precision,
+                "recall": recall,
+                "f1": f1,
+            }
 
-        result = {
-            "threshold": threshold,
-            "accuracy": accuracy,
-            "precision": precision,
-            "recall": recall,
-            "f1": f1,
-        }
+            results.append(result)
 
-        results.append(result)
-
-        print(
-            f"threshold={threshold:.2f} | "
-            f"accuracy={accuracy:.4f} | "
-            f"precision={precision:.4f} | "
-            f"recall={recall:.4f} | "
-            f"F1={f1:.4f}"
-        )
+            print(
+                f"margin={threshold:.3f} | "
+                f"entropy={entropy_threshold:.2f} | "
+                f"accuracy={accuracy:.4f} | "
+                f"precision={precision:.4f} | "
+                f"recall={recall:.4f} | "
+                f"F1={f1:.4f}"
+            )
 
     results.sort(
         key=lambda result: (
@@ -234,16 +251,32 @@ def main():
     best = results[0]
 
     print()
-    print("Selected validation threshold")
-    print("=============================")
+    print("Selected validation thresholds")
+    print("==============================")
     print(
-        f"Semantic gap threshold: "
-        f"{best['threshold']:.2f}"
+        f"EXP-04 margin threshold: "
+        f"{best['threshold']:.3f}"
     )
-    print(f"Validation accuracy: {best['accuracy']:.4f}")
-    print(f"Validation precision: {best['precision']:.4f}")
-    print(f"Validation recall: {best['recall']:.4f}")
-    print(f"Validation F1: {best['f1']:.4f}")
+    print(
+        f"Normalized entropy threshold: "
+        f"{best['entropy_threshold']:.2f}"
+    )
+    print(
+        f"Validation accuracy: "
+        f"{best['accuracy']:.4f}"
+    )
+    print(
+        f"Validation precision: "
+        f"{best['precision']:.4f}"
+    )
+    print(
+        f"Validation recall: "
+        f"{best['recall']:.4f}"
+    )
+    print(
+        f"Validation F1: "
+        f"{best['f1']:.4f}"
+    )
 
     print()
     print(
@@ -253,4 +286,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
