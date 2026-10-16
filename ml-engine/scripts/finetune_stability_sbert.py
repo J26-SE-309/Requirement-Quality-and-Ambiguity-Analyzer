@@ -218,6 +218,8 @@ def encode_batch(
 
     features = {
         key: value.to(device)
+        if isinstance(value, torch.Tensor)
+        else value
         for key, value in features.items()
     }
 
