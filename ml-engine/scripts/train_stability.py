@@ -153,6 +153,14 @@ def main() -> None:
         default=32,
     )
 
+    # Allow original or fine-tuned SBERT encoders.
+    parser.add_argument(
+        "--encoder",
+        type=str,
+        default=MODEL_ID,
+        help="Hugging Face model ID or local fine-tuned SBERT path",
+    )
+
     args = parser.parse_args()
 
     if args.batch_size < 1:
@@ -186,8 +194,8 @@ def main() -> None:
         "are NOT independent research results."
     )
 
-    # Load pretrained SBERT in Google Colab.
-    encoder = SentenceTransformer(MODEL_ID)
+    # Load the selected SBERT encoder in Google Colab.
+    encoder = SentenceTransformer(args.encoder)
 
     # Generate embeddings and comparison features.
     x_train = make_features(
@@ -285,7 +293,7 @@ def main() -> None:
 
     config = {
         "model_version": "task3-prototype-sbert-xgboost-v1",
-        "embedding_model": MODEL_ID,
+        "embedding_model": args.encoder,
         "feature_names": list(FEATURE_NAMES),
         "label_to_int": LABEL_TO_INT,
         "decision_threshold": 0.5,
